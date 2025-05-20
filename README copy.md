@@ -1,4 +1,4 @@
-# Walrus Python MCP SDK
+# Walrus Agent MCP SDK
 
 A Python SDK that connects AI/LLM agents to Sui blockchain applications with minimal code integration, automatic context storage, and event triggering support.
 

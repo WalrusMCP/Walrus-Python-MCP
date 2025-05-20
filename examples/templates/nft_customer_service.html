@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+
+{% block title %}NFT Customer Service Bot{% endblock %}
+
+{% block extra_css %}
+<style>
+    .collections-sidebar {
+        background-color: var(--bs-dark);
+        border-radius: 0.5rem;
+        height: 70vh;
+        overflow-y: auto;
+    }
+    .collection-item {
+        cursor: pointer;
+        padding: 0.75rem 1rem;
+        border-radius: 0.3rem;
+        transition: background-color 0.2s;
+    }
+    .collection-item:hover {
+        background-color: var(--bs-secondary-bg-subtle);
+    }
+    .collection-item.active {
+        background-color: var(--bs-primary-bg-subtle);
+        color: var(--bs-primary-text);
+    }
+    .nft-image {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 0.3rem;
+        margin-right: 0.5rem;
+        background-color: var(--bs-secondary-bg-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .btn-simulate {
+        position: absolute;
+        bottom: 1rem;
+        left: 1rem;
+        z-index: 10;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="display-5">NFT Customer Service Bot</h1>
+        <p class="lead">Ask questions about NFTs, collections, and transactions on the Sui blockchain.</p>
+    </div>
+</div>
+
+<div class="row">
+    <!-- NFT Collections Sidebar -->
+    <div class="col-md-3 mb-4">
+        <div class="collections-sidebar p-3">
+            <h5 class="mb-3">NFT Collections</h5>
+            <div class="mb-3">
+                <input type="text" class="form-control" id="collectionSearch" placeholder="Search collections...">
+            </div>
+            <div id="collectionsContainer">
+                <!-- Collections will be loaded here -->
+                <div class="d-flex justify-content-center my-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Interface -->
+    <div class="col-md-9">
+        <div class="chat-container mb-3 d-flex flex-column" id="chatMessages">
+            <div class="system-message">
+                Welcome to NFT Customer Service! How can I help you with your NFTs today?
+            </div>
+        </div>
+        
+        <div class="typing-indicator" id="typingIndicator">
+            <i class="fas fa-circle-notch fa-spin"></i> AI is thinking...
+        </div>
+        
+        <div class="input-group">
+            <input type="text" class="form-control" id="messageInput" placeholder="Ask about your NFTs...">
+            <button class="btn btn-primary" id="sendMessage">
+                <i class="fas fa-paper-plane"></i> Send
+            </button>
+        </div>
+        
+        <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-sm btn-outline-secondary" id="clearChat">
+                <i class="fas fa-trash"></i> Clear Chat
+            </button>
+            <button class="btn btn-sm btn-info" id="simulateTransfer" data-bs-toggle="modal" data-bs-target="#transferModal">
+                <i class="fas fa-exchange-alt"></i> Simulate NFT Transfer
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- NFT Transfer Simulation Modal -->
+<div class="modal fade" id="transferModal" tabindex="-1" aria-labelledby="transferModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="transferModalLabel">Simulate NFT Transfer</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="transferForm">
+                    <div class="mb-3">
+                        <label for="collectionSelect" class="form-label">NFT Collection</label>
+                        <select class="form-select" id="collectionSelect" required>
+                            <!-- Options will be loaded here -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tokenId" class="form-label">Token ID</label>
+                        <input type="text" class="form-control" id="tokenId" value="#1234" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="fromAddress" class="form-label">From Address</label>
+                        <input type="text" class="form-control" id="fromAddress" value="0xSenderAddress123" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="toAddress" class="form-label">To Address</label>
+                        <input type="text" class="form-control" id="toAddress" value="0xRecipientAddress456" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitTransfer">Simulate Transfer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // DOM elements
+    const chatMessages = document.getElementById('chatMessages');
+    const messageInput = document.getElementById('messageInput');
+    const sendButton = document.getElementById('sendMessage');
+    const clearButton = document.getElementById('clearChat');
+    const collectionSearch = document.getElementById('collectionSearch');
+    const collectionsContainer = document.getElementById('collectionsContainer');
+    const typingIndicator = document.getElementById('typingIndicator');
+    const transferForm = document.getElementById('transferForm');
+    const collectionSelect = document.getElementById('collectionSelect');
+    const submitTransfer = document.getElementById('submitTransfer');
+    
+    // Initial state
+    let collections = [];
+    let transferModal;
+    
+    // Load NFT collections
+    function loadCollections() {
+        fetch('/api/nft_collections')
+            .then(response => response.json())
+            .then(data => {
+                collections = data;
+                renderCollections(data);
+                populateCollectionSelect(data);
+            })
+            .catch(error => {
+                console.error('Error loading collections:', error);
+                collectionsContainer.innerHTML = '<div class="text-danger">Failed to load collections</div>';
+            });
+    }
+    
+    // Render collections in the sidebar
+    function renderCollections(data) {
+        collectionsContainer.innerHTML = '';
+        
+        const filterTerm = collectionSearch.value.toLowerCase();
+        
+        let html = '';
+        for (const [name, info] of Object.entries(data)) {
+            if (filterTerm && !name.toLowerCase().includes(filterTerm)) {
+                continue;
+            }
+            
+            html += `
+                <div class="collection-item mb-2" data-collection="${name}">
+                    <div class="d-flex align-items-center">
+                        <div class="nft-image">
+                            <i class="fas fa-image text-secondary"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold">${name}</div>
+                            <div class="small text-secondary">${info.total_items} items</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        if (html === '') {
+            collectionsContainer.innerHTML = '<div class="text-center my-3">No collections found</div>';
+        } else {
+            collectionsContainer.innerHTML = html;
+            
+            // Add event listeners to collection items
+            document.querySelectorAll('.collection-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    const collection = this.dataset.collection;
+                    askAboutCollection(collection);
+                });
+            });
+        }
+    }
+    
+    // Populate collection select in the transfer modal
+    function populateCollectionSelect(data) {
+        collectionSelect.innerHTML = '';
+        
+        for (const name of Object.keys(data)) {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            collectionSelect.appendChild(option);
+        }
+    }
+    
+    // Ask about a specific collection
+    function askAboutCollection(collection) {
+        const message = `Tell me about the ${collection} collection`;
+        messageInput.value = message;
+        sendMessage();
+    }
+    
+    // Add a message to the chat
+    function addMessage(content, isUser = false) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = isUser ? 'user-message message-animation' : 'bot-message message-animation';
+        messageDiv.textContent = content;
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    
+    // Add a system message to the chat
+    function addSystemMessage(content) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'system-message message-animation';
+        messageDiv.textContent = content;
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    
+    // Send message function
+    function sendMessage() {
+        const message = messageInput.value.trim();
+        if (!message) return;
+        
+        // Add user message to chat
+        addMessage(message, true);
+        
+        // Clear input
+        messageInput.value = '';
+        
+        // Show typing indicator
+        typingIndicator.style.display = 'block';
+        
+        // Send to API
+        fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Hide typing indicator
+            typingIndicator.style.display = 'none';
+            
+            if (data.error) {
+                addSystemMessage(`Error: ${data.error}`);
+            } else {
+                // Add bot response to chat
+                addMessage(data.response);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            typingIndicator.style.display = 'none';
+            addSystemMessage('Error: Failed to get response from the server');
+        });
+    }
+    
+    // Clear chat function
+    function clearChat() {
+        // Remove all messages except the welcome message
+        while (chatMessages.childElementCount > 1) {
+            chatMessages.removeChild(chatMessages.lastChild);
+        }
+        
+        // Clear backend conversation
+        fetch('/api/clear_conversation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                addSystemMessage('Conversation has been cleared');
+            }
+        })
+        .catch(error => {
+            console.error('Error clearing conversation:', error);
+        });
+    }
+    
+    // Simulate NFT transfer
+    function simulateTransfer() {
+        const collection = collectionSelect.value;
+        const tokenId = document.getElementById('tokenId').value;
+        const fromAddress = document.getElementById('fromAddress').value;
+        const toAddress = document.getElementById('toAddress').value;
+        
+        const transferData = {
+            collection,
+            token_id: tokenId,
+            from_address: fromAddress,
+            to_address: toAddress
+        };
+        
+        // Send to API
+        fetch('/api/simulate_nft_transfer', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(transferData),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('transferModal'));
+                modal.hide();
+                
+                // Add system message about the transfer
+                addSystemMessage(`Simulated NFT transfer: ${collection} #${tokenId} from ${fromAddress.substring(0, 8)}... to ${toAddress.substring(0, 8)}...`);
+                
+                // Add agent's response
+                addMessage(data.response);
+            } else {
+                addSystemMessage(`Error: ${data.error || 'Failed to simulate transfer'}`);
+            }
+        })
+        .catch(error => {
+            console.error('Error simulating transfer:', error);
+            addSystemMessage('Error: Failed to simulate transfer');
+        });
+    }
+    
+    // Event listeners
+    sendButton.addEventListener('click', sendMessage);
+    
+    messageInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+    
+    clearButton.addEventListener('click', clearChat);
+    
+    collectionSearch.addEventListener('input', function() {
+        renderCollections(collections);
+    });
+    
+    submitTransfer.addEventListener('click', simulateTransfer);
+    
+    // Initial load
+    loadCollections();
+    
+    // Initialize the modal
+    transferModal = new bootstrap.Modal(document.getElementById('transferModal'));
+});
+</script>
+{% endblock %}
